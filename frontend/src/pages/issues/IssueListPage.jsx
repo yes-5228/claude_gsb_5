@@ -38,9 +38,11 @@ export default function IssueListPage() {
   // 支持从巡查记录跳转过来直接上报问题
   useEffect(() => {
     const inspectionId = searchParams.get('createFromInspection');
-    if (!inspectionId) return;
+    const mysteryVisitId = searchParams.get('createFromMystery');
+    if (!inspectionId && !mysteryVisitId) return;
     setPreset({
-      defaultInspectionId: Number(inspectionId),
+      defaultInspectionId: inspectionId ? Number(inspectionId) : undefined,
+      defaultMysteryVisitId: mysteryVisitId ? Number(mysteryVisitId) : undefined,
       defaultRestroomId: searchParams.get('restroomId'),
     });
     setShowForm(true);

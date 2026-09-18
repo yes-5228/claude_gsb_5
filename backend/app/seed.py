@@ -11,6 +11,7 @@ from app.core.constants import (
     IssueCategory,
     IssueSeverity,
     IssueStatus,
+    MysteryTaskStatus,
     RestroomGrade,
     RestroomStatus,
     Shift,
@@ -18,8 +19,9 @@ from app.core.constants import (
 from app.models import Restroom
 from app.schemas.inspection import InspectionCreate, InspectionItem
 from app.schemas.issue import IssueCreate, IssueStatusUpdate
+from app.schemas.mystery import MysteryTaskCreate, MysteryTaskUpdate, MysteryVisitCreate
 from app.schemas.restroom import RestroomCreate
-from app.services import inspection_service, issue_service, restroom_service
+from app.services import inspection_service, issue_service, mystery_service, restroom_service
 
 RANDOM_SEED = 20240913
 
@@ -190,6 +192,86 @@ def seed_database(db: Session, *, reset: bool = False) -> int:
         created += 1
         _advance_issue(db, issue.id, age_days, rng)
 
+    created += _seed_mystery(db, restrooms, rng, now)
+    return created
+
+
+def _seed_mystery(db: Session, restrooms: list[Restroom], rng: random.Random, now: datetime) -> int:
+    """写入第三方暗访演示数据：按区域与周期下发的任务、暗访记录及关联问题。"""
+    created = 0
+    period_now = f"{now.year}-{now.month:02d}"
+    last_month = now - timedelta(days=20)
+    period_last = f"{last_month.year}-{last_month.month:02d}"
+
+    # (区域, 周期, 暗访人, 机构, 最终状态, 暗访记录天数范围)
+    specs = [
+        ("城东区", period_now, "林晓峰", "城市环境第三方测评中心", MysteryTaskStatus.RUNNING, 1, 10),
+        ("老城区", period_last, "赵子昂", "城市环境第三方测评中心", MysteryTaskStatus.DONE, 15, 25),
+    ]
+    for district, period, inspector, agency, final_status, min_age, max_age in specs:
+        task = mystery_service.create_task(
+            db,
+            MysteryTaskCreate(
+                title=f"{period} {district}第三方暗访测评",
+                district=district,
+                period=period,
+                inspector=inspector,
+                agency=agency,
+                remark="按年度购买服务合同开展的暗访测评",
+            ),
+        )
+        for room in [room for room in restrooms if room.district == district]:
+            items = _build_items(rng, rng.uniform(5.6, 9.4))
+            problem_item = _pick_problem(items)
+            has_problem = any(item.score < 6 for item in items)
+            visit = mystery_service.create_visit(
+                db,
+                MysteryVisitCreate(
+                    task_id=task.id,
+                    restroom_id=room.id,
+                    visit_time=now - timedelta(days=rng.randint(min_age, max_age)),
+                    items=items,
+                    images=[
+                        f"https://picsum.photos/seed/af{task.id}-{room.id}-{idx}/400/300"
+                        for idx in range(1, rng.randint(2, 4))
+                    ],
+                    problem_note=(
+                        f"暗访发现「{problem_item}」不达标，现场已拍照取证，请核实整改。"
+                        if has_problem
+                        else None
+                    ),
+                ),
+            )
+            if visit.result != "发现问题" or rng.random() > 0.8:
+                continue
+            category = CATEGORY_BY_ITEM.get(problem_item or "", IssueCategory.OTHER)
+            issue = issue_service.create_issue(
+                db,
+                IssueCreate(
+                    restroom_id=room.id,
+                    mystery_visit_id=visit.id,
+                    title=rng.choice(ISSUE_TEMPLATES[category]),
+                    description=(
+                        f"第三方暗访得分 {visit.score} 分（{visit.grade}），"
+                        f"检查项「{problem_item}」不达标，请安排整改。"
+                    ),
+                    category=category,
+                    severity=rng.choice([IssueSeverity.NORMAL, IssueSeverity.SERIOUS]),
+                    reporter=inspector,
+                    assignee=rng.choice(MANAGERS),
+                    deadline=visit.visit_time + timedelta(days=3),
+                    initial_remark="由第三方暗访记录转入整改流程",
+                ),
+            )
+            created += 1
+            age_days = (now - visit.visit_time).days
+            # 近两天发现的问题保持在途状态，便于演示整改流程
+            if age_days >= 2:
+                _advance_issue(db, issue.id, age_days, rng)
+        if final_status == MysteryTaskStatus.DONE:
+            mystery_service.update_task(
+                db, task.id, MysteryTaskUpdate(status=MysteryTaskStatus.DONE)
+            )
     return created
 
 

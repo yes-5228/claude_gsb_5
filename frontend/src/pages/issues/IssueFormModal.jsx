@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { inspectionApi } from '../../api/inspections.js';
 import { issueApi } from '../../api/issues.js';
 import { metaApi } from '../../api/meta.js';
+import { mysteryVisitApi } from '../../api/mystery.js';
 import Field from '../../components/Field.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
@@ -12,6 +13,7 @@ import { toDateTimeInput } from '../../utils/format.js';
 export default function IssueFormModal({
   defaultRestroomId,
   defaultInspectionId,
+  defaultMysteryVisitId,
   onClose,
   onSaved,
 }) {
@@ -19,6 +21,7 @@ export default function IssueFormModal({
   const toast = useToast();
   const [restrooms, setRestrooms] = useState([]);
   const [inspections, setInspections] = useState([]);
+  const [mysteryVisit, setMysteryVisit] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [form, setForm] = useState({
@@ -40,6 +43,31 @@ export default function IssueFormModal({
       .then(setRestrooms)
       .catch((err) => setError(err.message));
   }, []);
+
+  // 从暗访记录跳转时，拉取暗访详情预填问题描述、影像与上报人
+  useEffect(() => {
+    if (!defaultMysteryVisitId) return undefined;
+    let cancelled = false;
+    mysteryVisitApi
+      .detail(defaultMysteryVisitId)
+      .then((visit) => {
+        if (cancelled) return;
+        setMysteryVisit(visit);
+        setForm((prev) => ({
+          ...prev,
+          restroom_id: visit.restroom_id,
+          reporter: prev.reporter || visit.task?.inspector || '',
+          description:
+            prev.description ||
+            `第三方暗访得分 ${visit.score} 分（${visit.grade}）。${visit.problem_note || ''}`.trim(),
+          initial_remark: prev.initial_remark || '由第三方暗访记录转入整改流程',
+        }));
+      })
+      .catch((err) => setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultMysteryVisitId]);
 
   // 切换公厕后重新加载该公厕的巡查记录，供关联选择
   useEffect(() => {
@@ -90,6 +118,8 @@ export default function IssueFormModal({
         ...form,
         restroom_id: Number(form.restroom_id),
         inspection_id: form.inspection_id ? Number(form.inspection_id) : null,
+        mystery_visit_id: defaultMysteryVisitId ? Number(defaultMysteryVisitId) : null,
+        images: mysteryVisit?.images?.length ? mysteryVisit.images : [],
         deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
       });
       toast.success('问题已上报，进入待整改状态');
@@ -119,6 +149,12 @@ export default function IssueFormModal({
       }
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
+      {mysteryVisit ? (
+        <div className="alert alert-info">
+          正在基于暗访记录（{mysteryVisit.task?.title} · 得分 {mysteryVisit.score}
+          分）上报问题，现场影像将一并带入，问题按普通问题进入整改流程。
+        </div>
+      ) : null}
       <form id="issue-form" className="form-grid" onSubmit={submit}>
         <Field label="所属公厕 *">
           <select value={form.restroom_id} onChange={setValue('restroom_id')}>

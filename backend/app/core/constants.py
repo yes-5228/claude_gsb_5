@@ -49,6 +49,24 @@ class IssueStatus(StrEnum):
     CLOSED = "已关闭"
 
 
+class MysteryTaskStatus(StrEnum):
+    """第三方暗访任务状态。"""
+
+    PENDING = "待执行"
+    RUNNING = "进行中"
+    DONE = "已完成"
+    CANCELLED = "已取消"
+
+
+# 暗访任务流转规则：当前状态 -> 允许流转到的状态
+MYSTERY_TASK_TRANSITIONS: dict[str, list[str]] = {
+    MysteryTaskStatus.PENDING: [MysteryTaskStatus.RUNNING, MysteryTaskStatus.CANCELLED],
+    MysteryTaskStatus.RUNNING: [MysteryTaskStatus.DONE, MysteryTaskStatus.CANCELLED],
+    MysteryTaskStatus.DONE: [],
+    MysteryTaskStatus.CANCELLED: [],
+}
+
+
 # 整改流转规则：当前状态 -> 允许流转到的状态
 ISSUE_TRANSITIONS: dict[str, list[str]] = {
     IssueStatus.PENDING: [IssueStatus.PROCESSING, IssueStatus.CLOSED],

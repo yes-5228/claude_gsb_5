@@ -1,17 +1,18 @@
 # 公厕保洁巡查记录系统
 
-面向城市公厕管养单位的巡查记录与整改闭环管理系统，覆盖 **公厕台账 → 保洁巡查 → 问题上报 → 整改跟踪** 四条业务主线。后端为 FastAPI + SQLAlchemy，前端为 React + Vite，前后端均按模块拆分，可单独开发、单独部署。
+面向城市公厕管养单位的巡查记录与整改闭环管理系统，覆盖 **公厕台账 → 保洁巡查 → 第三方暗访 → 问题上报 → 整改跟踪** 五条业务主线。后端为 FastAPI + SQLAlchemy，前端为 React + Vite，前后端均按模块拆分，可单独开发、单独部署。
 
 ## 功能模块
 
 | 模块 | 页面/入口 | 主要能力 |
 | --- | --- | --- |
-| 总览看板 | `/` | 核心指标卡、巡查与问题趋势、整改状态/分类/严重程度分布、区域运行情况、重点关注公厕、最新问题与巡查 |
-| 公厕台账 | `/restrooms`、`/restrooms/:id` | 台账增删改查、区域与状态筛选、公厕详情（档案 + 历史巡查 + 历史问题）、关联数据删除保护 |
+| 总览看板 | `/` | 核心指标卡、巡查与问题趋势、整改状态/分类/严重程度分布、区域运行情况、重点关注公厕、第三方暗访独立统计、最新问题与巡查 |
+| 公厕台账 | `/restrooms`、`/restrooms/:id` | 台账增删改查、区域与状态筛选、公厕详情（档案 + 历史巡查 + 暗访记录 + 历史问题）、关联数据删除保护 |
 | 保洁巡查 | `/inspections` | 8 项检查项打分、自动折算百分制得分与等级、班次/日期/结论筛选、巡查详情、一键转问题上报 |
-| 问题上报 | `/issues`、`/issues/:id` | 问题上报（可关联巡查记录）、分类/程度/期限、整改流程流转、整改轨迹时间线、超期预警、追加跟进记录 |
+| 第三方暗访 | `/mystery` | 暗访任务按区域与周期下发、暗访人按统一评分表打分并提交现场影像与问题说明、结论与内部巡查得分分开统计、暗访问题一键转入整改流程 |
+| 问题上报 | `/issues`、`/issues/:id` | 问题上报（可关联巡查记录或暗访记录）、分类/程度/期限、整改流程流转、整改轨迹时间线、超期预警、追加跟进记录 |
 
-其他页面不会互相混杂：台账、巡查、问题各自独立成页，详情页再做跨模块的关联展示。
+其他页面不会互相混杂：台账、巡查、暗访、问题各自独立成页，详情页再做跨模块的关联展示。
 
 ## 技术栈
 
@@ -25,11 +26,11 @@
 .
 ├── backend
 │   ├── app
-│   │   ├── api/v1/endpoints      # 路由层：restrooms / inspections / issues / stats / meta
+│   │   ├── api/v1/endpoints      # 路由层：restrooms / inspections / mystery / issues / stats / meta
 │   │   ├── core                 # 配置、数据库、业务常量、领域异常
-│   │   ├── models               # ORM 模型：公厕、巡查、问题、整改流水
+│   │   ├── models               # ORM 模型：公厕、巡查、暗访任务与记录、问题、整改流水
 │   │   ├── schemas              # Pydantic 出入参模型
-│   │   ├── services             # 业务规则层：台账、巡查、问题整改、评分、统计
+│   │   ├── services             # 业务规则层：台账、巡查、暗访、问题整改、评分、统计
 │   │   ├── seed.py              # 演示数据生成
 │   │   └── main.py              # 应用入口（含异常处理、CORS、健康检查）
 │   ├── tests                    # pytest 接口测试
@@ -40,7 +41,7 @@
 │   │   ├── api                  # 按资源拆分的接口封装 + 统一 fetch 客户端
 │   │   ├── components           # 通用组件：表格、分页、弹窗、标签、图表、时间线等
 │   │   ├── hooks                # useAsync / useListQuery / useDictionaries
-│   │   ├── pages                # dashboard / restrooms / inspections / issues 四个模块
+│   │   ├── pages                # dashboard / restrooms / inspections / mystery / issues 五个模块
 │   │   ├── utils                # 时间格式化、评分换算
 │   │   └── styles/global.css
 │   ├── nginx.conf
@@ -131,7 +132,14 @@ npm run dev
 | GET | `/inspections` | 巡查记录查询（restroom_id/district/inspector/shift/result/日期区间/关键字） |
 | POST | `/inspections` | 新增巡查，服务端按检查项自动算分、定级、判定结论 |
 | GET/PATCH/DELETE | `/inspections/{id}` | 详情 / 更新 / 删除 |
-| GET | `/issues` | 问题查询（status/category/severity/district/overdue/open_only/日期区间/关键字） |
+| GET | `/mystery/tasks` | 暗访任务查询（district/status/period/关键字） |
+| POST | `/mystery/tasks` | 下发暗访任务，自动生成编号 `AF-YYYYMMDD-001` |
+| GET/PATCH/DELETE | `/mystery/tasks/{id}` | 详情 / 更新（含状态流转校验）/ 删除（有记录时需 `force=true`） |
+| GET | `/mystery/visits` | 暗访记录查询（task_id/restroom_id/district/result/日期区间/关键字） |
+| POST | `/mystery/visits` | 提交暗访记录，按统一评分表自动算分，首条记录自动启动任务 |
+| GET/PATCH/DELETE | `/mystery/visits/{id}` | 详情 / 更新 / 删除 |
+| GET | `/mystery/stats` | 第三方暗访独立统计（与内部巡查分开） |
+| GET | `/issues` | 问题查询（status/category/severity/district/overdue/open_only/mystery_visit_id/日期区间/关键字） |
 | POST | `/issues` | 上报问题，自动生成编号 `WT-YYYYMMDD-001` 并写入首条整改流水 |
 | GET/PATCH/DELETE | `/issues/{id}` | 详情（含完整整改轨迹）/ 更新 / 删除 |
 | GET | `/issues/{id}/transitions` | 当前状态可执行的流转动作 |
@@ -146,6 +154,8 @@ npm run dev
 ## 业务规则
 
 - **巡查评分**：8 个检查项各 0-10 分，得分 = 总得分 / 满分 × 100；≥90 优秀、≥80 良好、≥70 合格，其余不合格。任一检查项低于 6 分或等级为不合格时，巡查结论自动置为「发现问题」。
+- **第三方暗访**：暗访任务按「区域 + 周期」下发（编号 `AF-` + 下发日期 + 当日三位流水号），状态流转 `待执行 → 进行中 → 已完成`，另可取消；提交首条暗访记录后任务自动进入「进行中」。暗访记录复用与内部巡查相同的 8 项统一评分表与算分规则，需一并提交现场影像链接与问题说明；公厕必须位于任务区域内，跨区域提交会被拒绝。暗访得分、结论在 `/mystery/stats` 与看板「第三方暗访」区块中**独立统计**，不计入内部巡查均分。
+- **暗访问题闭环**：暗访发现的问题与普通问题完全同流——从暗访记录一键上报（自动带入公厕、影像与问题说明），生成普通问题工单进入 `待整改 → …` 整改闭环，问题详情标注「第三方暗访」来源。
 - **问题编号**：`WT-` + 上报日期 + 当日三位流水号。
 - **整改闭环**：`待整改 → 整改中 → 待验收 → 已完成 → 已关闭`；`待验证` 阶段可被驳回退回 `整改中`，`待整改/整改中` 可直接作废关闭。每次流转都会写入一条整改流水（动作、原状态、新状态、操作人、说明），详情页以时间线呈现。
 - **超期预警**：整改期限早于当前时间且状态仍处于未闭环（待整改/整改中/待验收）时，列表与详情页显示「已超期」，看板统计超期数量。
@@ -153,7 +163,7 @@ npm run dev
 
 ## 演示数据
 
-`SEED_ON_STARTUP=true`（默认）且数据库为空时，会自动写入：10 座公厕（4 个区域、三类等级、含维修/停用状态）、近 14 天约 90 条巡查记录、13 条不同整改阶段的问题及其完整整改轨迹。数据由固定随机种子生成，结果可复现；如需重置，删除 `backend/data/app.db`（或 `docker compose down -v`）后重启即可。
+`SEED_ON_STARTUP=true`（默认）且数据库为空时，会自动写入：10 座公厕（4 个区域、三类等级、含维修/停用状态）、近 14 天约 90 条巡查记录、13 条不同整改阶段的问题及其完整整改轨迹、2 项第三方暗访任务（不同区域与周期）及其暗访记录与关联问题。数据由固定随机种子生成，结果可复现；如需重置，删除 `backend/data/app.db`（或 `docker compose down -v`）后重启即可。
 
 ## 测试与验证
 

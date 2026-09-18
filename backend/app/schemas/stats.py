@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.inspection import InspectionOut
 from app.schemas.issue import IssueOut
+from app.schemas.mystery import MysteryStats
 
 
 class NameValue(BaseModel):
@@ -69,3 +70,6 @@ class DashboardStats(BaseModel):
     top_restrooms: list[RestroomRankItem] = Field(default_factory=list)
     recent_issues: list[IssueOut] = Field(default_factory=list)
     recent_inspections: list[InspectionOut] = Field(default_factory=list)
+    mystery: MysteryStats = Field(
+        default_factory=MysteryStats, description="第三方暗访独立统计，与内部巡查分开"
+    )

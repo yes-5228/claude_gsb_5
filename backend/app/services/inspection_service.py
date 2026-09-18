@@ -18,7 +18,8 @@ SORTABLE_FIELDS = {
 }
 
 
-def _normalize_items(items: list) -> list[dict]:
+def normalize_items(items: list) -> list[dict]:
+    """校验并规范化统一评分表打分明细，保洁巡查与第三方暗访共用。"""
     if not items:
         raise DomainError("巡查检查项不能为空")
     normalized: list[dict] = []
@@ -102,7 +103,7 @@ def list_inspections(
 
 def create_inspection(db: Session, payload: InspectionCreate) -> Inspection:
     restroom_service.get_restroom(db, payload.restroom_id)
-    items = _normalize_items(payload.items)
+    items = normalize_items(payload.items)
     score, grade, result = scoring.evaluate(items)
     inspection = Inspection(
         restroom_id=payload.restroom_id,
@@ -126,7 +127,7 @@ def update_inspection(db: Session, inspection_id: int, payload: InspectionUpdate
     inspection = get_inspection(db, inspection_id)
     data = payload.model_dump(exclude_unset=True)
     if data.get("items") is not None:
-        items = _normalize_items(payload.items or [])
+        items = normalize_items(payload.items or [])
         score, grade, result = scoring.evaluate(items)
         inspection.items = items
         inspection.score = score

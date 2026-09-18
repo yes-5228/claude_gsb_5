@@ -111,6 +111,7 @@ export default function IssueDetailPage() {
                   <StatusTag status={issue.status} />
                   <SeverityTag severity={issue.severity} />
                   <OverdueTag deadline={issue.deadline} status={issue.status} />
+                  {issue.mystery_visit_id ? <span className="tag tag-info">第三方暗访</span> : null}
                 </div>
                 <span className="hint">最后更新：{formatDateTime(issue.updated_at)}</span>
               </div>
@@ -136,6 +137,10 @@ export default function IssueDetailPage() {
                   {
                     label: '关联巡查记录',
                     value: issue.inspection_id ? `#${issue.inspection_id}` : '无',
+                  },
+                  {
+                    label: '关联暗访记录',
+                    value: issue.mystery_visit_id ? `#${issue.mystery_visit_id}` : '无',
                   },
                   { label: '闭环时间', value: formatDateTime(issue.closed_at) },
                   { label: '问题描述', value: issue.description || '无' },

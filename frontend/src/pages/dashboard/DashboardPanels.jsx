@@ -173,3 +173,66 @@ export function RecentInspectionsPanel({ items }) {
     </section>
   );
 }
+
+export function MysteryPanel({ stats }) {
+  if (!stats) return null;
+  return (
+    <section className="card">
+      <div className="card-title">
+        <h3>第三方暗访（独立统计）</h3>
+        <Link className="hint" to="/mystery">
+          前往暗访模块 →
+        </Link>
+      </div>
+      <div className="stat-grid" style={{ marginBottom: 12 }}>
+        <div className="stat-card is-info">
+          <div className="label">暗访任务</div>
+          <div className="value">
+            {stats.task_total}
+            <span className="unit">项</span>
+          </div>
+          <div className="foot">进行中 {stats.task_running} 项</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">暗访记录</div>
+          <div className="value">
+            {stats.visit_total}
+            <span className="unit">条</span>
+          </div>
+          <div className="foot">发现问题 {stats.problem_visit_total} 条</div>
+        </div>
+        <div className={`stat-card${stats.avg_score && stats.avg_score < 85 ? ' is-danger' : ''}`}>
+          <div className="label">暗访均分</div>
+          <div className="value">
+            {Number(stats.avg_score || 0).toFixed(1)}
+            <span className="unit">分</span>
+          </div>
+          <div className="foot">与内部巡查得分分开统计</div>
+        </div>
+        <div className={`stat-card${stats.issue_open ? ' is-danger' : ''}`}>
+          <div className="label">暗访转问题</div>
+          <div className="value">
+            {stats.issue_total}
+            <span className="unit">条</span>
+          </div>
+          <div className="foot">未闭环 {stats.issue_open} 条</div>
+        </div>
+      </div>
+      <DataTable
+        columns={[
+          { key: 'district', title: '区域' },
+          { key: 'visit_count', title: '暗访次数' },
+          {
+            key: 'avg_score',
+            title: '暗访均分',
+            render: (row) => (row.avg_score ? <ScorePill score={row.avg_score} /> : '-'),
+          },
+          { key: 'problem_count', title: '发现问题' },
+        ]}
+        rows={stats.by_district || []}
+        rowKey={(row) => row.district}
+        emptyText="暂无暗访数据"
+      />
+    </section>
+  );
+}

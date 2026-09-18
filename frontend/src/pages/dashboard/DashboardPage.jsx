@@ -10,6 +10,7 @@ import {
   CategoryPanel,
   DistrictPanel,
   IssueStatusPanel,
+  MysteryPanel,
   RankingPanel,
   RecentInspectionsPanel,
   RecentIssuesPanel,
@@ -125,6 +126,8 @@ export default function DashboardPage() {
               <DistrictPanel items={data.districts} />
               <RankingPanel items={data.top_restrooms} />
             </div>
+
+            <MysteryPanel stats={data.mystery} />
 
             <div className="grid-2">
               <RecentIssuesPanel items={data.recent_issues} />

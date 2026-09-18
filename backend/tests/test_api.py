@@ -223,3 +223,139 @@ def test_dashboard_stats(client, restroom):
     }
     assert payload["top_restrooms"]
     assert "rectification_rate" in overview
+    assert "mystery" in payload
+
+
+def test_mystery_task_and_visit_flow(client, restroom):
+    other = client.post(
+        "/api/v1/restrooms",
+        json={"name": "外区公厕", "district": "外区", "address": "外区路 1 号"},
+    ).json()
+
+    # 下发任务：按区域与周期
+    task = client.post(
+        "/api/v1/mystery/tasks",
+        json={
+            "title": "2026-09 测试区第三方暗访",
+            "district": "测试区",
+            "period": "2026-09",
+            "inspector": "林暗访",
+            "agency": "第三方测评中心",
+        },
+    )
+    assert task.status_code == 201, task.text
+    task = task.json()
+    assert task["code"].startswith("AF-")
+    assert task["status"] == "待执行"
+
+    # 越级流转被拒绝：待执行 -> 已完成
+    invalid = client.patch(f"/api/v1/mystery/tasks/{task['id']}", json={"status": "已完成"})
+    assert invalid.status_code == 400
+
+    # 跨区域提交暗访记录被拒绝
+    mismatch = client.post(
+        "/api/v1/mystery/visits",
+        json={"task_id": task["id"], "restroom_id": other["id"], "items": full_items(9)},
+    )
+    assert mismatch.status_code == 400
+    assert "不在任务区域" in mismatch.json()["detail"]
+
+    # 暗访结论与内部巡查分开统计：提交暗访记录前后，内部巡查统计不变
+    overview_before = client.get("/api/v1/stats/overview").json()
+
+    # 提交暗访记录：统一评分表 + 现场影像 + 问题说明
+    bad_items = full_items(9)
+    bad_items[0]["score"] = 3
+    visit = client.post(
+        "/api/v1/mystery/visits",
+        json={
+            "task_id": task["id"],
+            "restroom_id": restroom["id"],
+            "items": bad_items,
+            "images": ["https://example.com/a.jpg", "https://example.com/b.jpg"],
+            "problem_note": "地面污渍明显，已拍照取证",
+        },
+    )
+    assert visit.status_code == 201, visit.text
+    visit = visit.json()
+    assert visit["result"] == "发现问题"
+    assert visit["score"] < 90
+    assert visit["images"] == ["https://example.com/a.jpg", "https://example.com/b.jpg"]
+    assert visit["task"]["district"] == "测试区"
+
+    # 首条记录提交后任务自动进入「进行中」
+    assert client.get(f"/api/v1/mystery/tasks/{task['id']}").json()["status"] == "进行中"
+
+    # 暗访发现的问题按普通问题进入整改流程
+    issue = client.post(
+        "/api/v1/issues",
+        json={
+            "restroom_id": restroom["id"],
+            "mystery_visit_id": visit["id"],
+            "title": "暗访发现地面污渍",
+            "category": "保洁不到位",
+            "reporter": "林暗访",
+        },
+    )
+    assert issue.status_code == 201, issue.text
+    issue = issue.json()
+    assert issue["mystery_visit_id"] == visit["id"]
+    assert issue["status"] == "待整改"
+    moved = client.post(
+        f"/api/v1/issues/{issue['id']}/transitions",
+        json={"to_status": "整改中", "operator": "保洁班组"},
+    )
+    assert moved.status_code == 200
+
+    # 问题可暗访记录反查；暗访记录可见关联问题数
+    by_visit = client.get("/api/v1/issues", params={"mystery_visit_id": visit["id"]}).json()
+    assert by_visit["meta"]["total"] == 1
+    visit_detail = client.get(f"/api/v1/mystery/visits/{visit['id']}").json()
+    assert visit_detail["issue_count"] == 1
+
+    # 暗访结论与内部巡查分开统计
+    overview_after = client.get("/api/v1/stats/overview").json()
+    assert overview_after["inspection_total"] == overview_before["inspection_total"]
+    mystery = client.get("/api/v1/mystery/stats").json()
+    assert mystery["task_total"] == 1
+    assert mystery["visit_total"] == 1
+    assert mystery["problem_visit_total"] == 1
+    assert mystery["issue_total"] == 1
+    assert mystery["issue_open"] == 1
+    assert mystery["by_district"][0]["district"] == "测试区"
+    dashboard = client.get("/api/v1/stats/dashboard").json()
+    assert dashboard["mystery"]["visit_total"] == 1
+
+    # 任务删除保护：存在暗访记录时需 force
+    blocked = client.delete(f"/api/v1/mystery/tasks/{task['id']}")
+    assert blocked.status_code == 409
+    ok = client.delete(f"/api/v1/mystery/tasks/{task['id']}", params={"force": "true"})
+    assert ok.status_code == 200
+    assert client.get(f"/api/v1/mystery/tasks/{task['id']}").status_code == 404
+    # 任务级联删除后，关联问题的 mystery_visit_id 被置空而非删除问题
+    survived = client.get(f"/api/v1/issues/{issue['id']}").json()
+    assert survived["mystery_visit_id"] is None
+
+
+def test_mystery_visit_rejected_when_task_closed(client, restroom):
+    task = client.post(
+        "/api/v1/mystery/tasks",
+        json={
+            "title": "2026-08 测试区暗访",
+            "district": "测试区",
+            "period": "2026-08",
+            "inspector": "赵暗访",
+        },
+    ).json()
+    client.post(
+        "/api/v1/mystery/visits",
+        json={"task_id": task["id"], "restroom_id": restroom["id"], "items": full_items(9)},
+    )
+    finished = client.patch(f"/api/v1/mystery/tasks/{task['id']}", json={"status": "已完成"})
+    assert finished.status_code == 200
+    rejected = client.post(
+        "/api/v1/mystery/visits",
+        json={"task_id": task["id"], "restroom_id": restroom["id"], "items": full_items(9)},
+    )
+    assert rejected.status_code == 400
+    assert "已完成" in rejected.json()["detail"]

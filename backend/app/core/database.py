@@ -4,7 +4,7 @@ import os
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -56,3 +56,22 @@ def init_db() -> None:
     from app import models  # noqa: F401  确保模型完成注册
 
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
+
+
+def _ensure_columns() -> None:
+    """为已存在的旧库补齐后续版本新增的列（create_all 不会修改已有表）。"""
+    additions = {
+        "issues": [
+            ("mystery_visit_id", "INTEGER REFERENCES mystery_visits(id) ON DELETE SET NULL"),
+        ],
+    }
+    with engine.begin() as conn:
+        existing = set(inspect(conn).get_table_names())
+        for table, columns in additions.items():
+            if table not in existing:
+                continue
+            present = {column["name"] for column in inspect(conn).get_columns(table)}
+            for name, ddl in columns:
+                if name not in present:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))

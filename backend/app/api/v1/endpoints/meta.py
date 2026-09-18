@@ -13,6 +13,7 @@ from app.core.constants import (
     IssueCategory,
     IssueSeverity,
     IssueStatus,
+    MysteryTaskStatus,
     RestroomGrade,
     RestroomStatus,
     Shift,
@@ -40,6 +41,7 @@ class Dictionaries(BaseModel):
     inspection_check_items: list[str]
     inspection_item_max_score: int
     issue_transitions: dict[str, list[str]]
+    mystery_task_status: list[str]
 
 
 @router.get("/dictionaries", response_model=Dictionaries, summary="枚举字典")
@@ -54,6 +56,7 @@ def get_dictionaries() -> Dictionaries:
         inspection_check_items=list(INSPECTION_CHECK_ITEMS),
         inspection_item_max_score=INSPECTION_ITEM_MAX_SCORE,
         issue_transitions={key: list(value) for key, value in ISSUE_TRANSITIONS.items()},
+        mystery_task_status=[item.value for item in MysteryTaskStatus],
     )
 
 

@@ -12,7 +12,7 @@ from app.core.constants import (
     IssueStatus,
 )
 from app.core.exceptions import DomainError, NotFoundError
-from app.models import Inspection, Issue, RectificationRecord, Restroom
+from app.models import Inspection, Issue, MysteryVisit, RectificationRecord, Restroom
 from app.schemas.issue import IssueCreate, IssueOut, IssueStatusUpdate, IssueUpdate
 from app.services import restroom_service
 
@@ -69,6 +69,7 @@ def list_issues(
     *,
     restroom_id: int | None = None,
     inspection_id: int | None = None,
+    mystery_visit_id: int | None = None,
     district: str | None = None,
     status: str | None = None,
     statuses: list[str] | None = None,
@@ -92,6 +93,8 @@ def list_issues(
         stmt = stmt.where(Issue.restroom_id == restroom_id)
     if inspection_id:
         stmt = stmt.where(Issue.inspection_id == inspection_id)
+    if mystery_visit_id:
+        stmt = stmt.where(Issue.mystery_visit_id == mystery_visit_id)
     if status:
         stmt = stmt.where(Issue.status == status)
     if statuses:
@@ -142,11 +145,18 @@ def create_issue(db: Session, payload: IssueCreate) -> Issue:
             raise NotFoundError(f"巡查记录 {payload.inspection_id} 不存在")
         if inspection.restroom_id != payload.restroom_id:
             raise DomainError("关联的巡查记录与所选公厕不一致")
+    if payload.mystery_visit_id is not None:
+        visit = db.get(MysteryVisit, payload.mystery_visit_id)
+        if visit is None:
+            raise NotFoundError(f"暗访记录 {payload.mystery_visit_id} 不存在")
+        if visit.restroom_id != payload.restroom_id:
+            raise DomainError("关联的暗访记录与所选公厕不一致")
 
-    data = _values(payload.model_dump(exclude={"inspection_id", "report_time", "initial_remark"}))
+    data = _values(payload.model_dump(exclude={"inspection_id", "mystery_visit_id", "report_time", "initial_remark"}))
     issue = Issue(
         code=_next_code(db),
         inspection_id=payload.inspection_id,
+        mystery_visit_id=payload.mystery_visit_id,
         report_time=payload.report_time or datetime.now(),
         status=IssueStatus.PENDING.value,
         **data,

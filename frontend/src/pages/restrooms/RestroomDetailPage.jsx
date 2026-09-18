@@ -3,12 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 
 import { inspectionApi } from '../../api/inspections.js';
 import { issueApi } from '../../api/issues.js';
+import { mysteryApi } from '../../api/mystery.js';
 import { restroomApi } from '../../api/restrooms.js';
 import DataTable from '../../components/DataTable.jsx';
 import DetailList from '../../components/DetailList.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import Pagination from '../../components/Pagination.jsx';
-import { ScorePill, SeverityTag, StatusTag } from '../../components/Tags.jsx';
+import { GradeTag, ScorePill, SeverityTag, StatusTag } from '../../components/Tags.jsx';
 import { useAsync } from '../../hooks/useAsync.js';
 import { useListQuery } from '../../hooks/useListQuery.js';
 import { formatDateTime } from '../../utils/format.js';
@@ -17,6 +18,7 @@ import RestroomFormModal from './RestroomFormModal.jsx';
 const TABS = [
   { key: 'profile', label: '基础档案' },
   { key: 'inspections', label: '巡查记录' },
+  { key: 'mystery', label: '暗访记录' },
   { key: 'issues', label: '问题记录' },
 ];
 
@@ -31,6 +33,11 @@ export default function RestroomDetailPage() {
   );
   const inspections = useListQuery(
     (params) => inspectionApi.list({ ...params, restroom_id: restroomId }),
+    {},
+    5,
+  );
+  const mysteryVisits = useListQuery(
+    (params) => mysteryApi.listVisits({ ...params, restroom_id: restroomId }),
     {},
     5,
   );
@@ -81,6 +88,17 @@ export default function RestroomDetailPage() {
                 </div>
                 <div className="foot">
                   最近得分：{restroom.latest_inspection_score ?? '-'}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="label">第三方暗访</div>
+                <div className="value">
+                  {restroom.mystery_visit_count ?? 0}
+                  <span className="unit">次</span>
+                </div>
+                <div className="foot">
+                  暗访均分：
+                  {restroom.avg_mystery_score != null ? restroom.avg_mystery_score.toFixed(1) : '-'}
                 </div>
               </div>
               <div className={`stat-card${restroom.open_issue_count ? ' is-danger' : ''}`}>
@@ -155,6 +173,32 @@ export default function RestroomDetailPage() {
                   ]}
                 />
                 <Pagination meta={inspections.meta} onPageChange={inspections.setPage} />
+              </section>
+            ) : null}
+
+            {tab === 'mystery' ? (
+              <section className="card">
+                <div className="card-title">
+                  <h3>第三方暗访记录</h3>
+                  <Link className="hint" to="/mystery?tab=visits">
+                    前往暗访模块 →
+                  </Link>
+                </div>
+                <DataTable
+                  loading={mysteryVisits.loading}
+                  error={mysteryVisits.error}
+                  rows={mysteryVisits.items}
+                  emptyText="该公厕暂无暗访记录"
+                  columns={[
+                    { key: 'visit_time', title: '暗访时间', render: (row) => formatDateTime(row.visit_time) },
+                    { key: 'inspector', title: '暗访人' },
+                    { key: 'score', title: '得分', render: (row) => <ScorePill score={row.score} /> },
+                    { key: 'grade', title: '等级', render: (row) => <GradeTag grade={row.grade} /> },
+                    { key: 'result', title: '结论', render: (row) => <StatusTag status={row.result} /> },
+                    { key: 'problem_desc', title: '问题说明', wrap: true, render: (row) => row.problem_desc || '-' },
+                  ]}
+                />
+                <Pagination meta={mysteryVisits.meta} onPageChange={mysteryVisits.setPage} />
               </section>
             ) : null}
 

@@ -5,7 +5,7 @@ import { issueApi } from '../../api/issues.js';
 import DetailList from '../../components/DetailList.jsx';
 import Field from '../../components/Field.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
-import { OverdueTag, SeverityTag, StatusTag } from '../../components/Tags.jsx';
+import { OverdueTag, SeverityTag, SourceTag, StatusTag } from '../../components/Tags.jsx';
 import Timeline from '../../components/Timeline.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useAsync } from '../../hooks/useAsync.js';
@@ -108,6 +108,7 @@ export default function IssueDetailPage() {
               <div className="card-title">
                 <div className="inline">
                   <h3>{issue.title}</h3>
+                  <SourceTag source={issue.source} />
                   <StatusTag status={issue.status} />
                   <SeverityTag severity={issue.severity} />
                   <OverdueTag deadline={issue.deadline} status={issue.status} />
@@ -127,6 +128,7 @@ export default function IssueDetailPage() {
                     ),
                   },
                   { label: '问题分类', value: issue.category },
+                  { label: '问题来源', value: <SourceTag source={issue.source} /> },
                   {
                     label: '上报人 / 时间',
                     value: `${issue.reporter || '-'} · ${formatDateTime(issue.report_time)}`,
@@ -136,6 +138,14 @@ export default function IssueDetailPage() {
                   {
                     label: '关联巡查记录',
                     value: issue.inspection_id ? `#${issue.inspection_id}` : '无',
+                  },
+                  {
+                    label: '关联暗访记录',
+                    value: issue.mystery_visit_id ? (
+                      <Link to={`/mystery?tab=visits`}>#{issue.mystery_visit_id}</Link>
+                    ) : (
+                      '无'
+                    ),
                   },
                   { label: '闭环时间', value: formatDateTime(issue.closed_at) },
                   { label: '问题描述', value: issue.description || '无' },

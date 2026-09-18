@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 
 import BarList from '../../components/BarList.jsx';
 import DataTable from '../../components/DataTable.jsx';
-import { ScorePill, SeverityTag, StatusTag } from '../../components/Tags.jsx';
+import { GradeTag, ScorePill, SeverityTag, SourceTag, StatusTag } from '../../components/Tags.jsx';
 import { formatDateTime } from '../../utils/format.js';
 
 const STATUS_COLORS = {
@@ -12,6 +12,30 @@ const STATUS_COLORS = {
   已完成: '#15803d',
   已关闭: '#94a3b8',
 };
+
+const SOURCE_COLORS = {
+  内部巡查: '#0f766e',
+  第三方暗访: '#d97706',
+  群众反馈: '#64748b',
+};
+
+export function IssueSourcePanel({ items }) {
+  return (
+    <section className="card">
+      <div className="card-title">
+        <h3>问题来源分布</h3>
+        <span className="hint">内部巡查与第三方暗访分开统计</span>
+      </div>
+      <BarList
+        items={(items || []).map((item) => ({
+          name: item.name,
+          value: item.value,
+          color: SOURCE_COLORS[item.name] || '#64748b',
+        }))}
+      />
+    </section>
+  );
+}
 
 export function IssueStatusPanel({ items }) {
   if (!items?.length) return null;
@@ -80,6 +104,12 @@ export function DistrictPanel({ items }) {
             title: '巡查均分',
             render: (row) => (row.avg_score ? <ScorePill score={row.avg_score} /> : '-'),
           },
+          {
+            key: 'avg_mystery_score',
+            title: '暗访均分',
+            render: (row) =>
+              row.mystery_visit_count ? <ScorePill score={row.avg_mystery_score} /> : '-',
+          },
         ]}
         rows={items || []}
         rowKey={(row) => row.district}
@@ -107,8 +137,15 @@ export function RankingPanel({ items }) {
           { key: 'inspection_count', title: '巡查次数' },
           {
             key: 'avg_score',
-            title: '均分',
+            title: '巡查均分',
             render: (row) => (row.avg_score ? <ScorePill score={row.avg_score} /> : '-'),
+          },
+          { key: 'mystery_visit_count', title: '暗访次数' },
+          {
+            key: 'avg_mystery_score',
+            title: '暗访均分',
+            render: (row) =>
+              row.mystery_visit_count ? <ScorePill score={row.avg_mystery_score} /> : '-',
           },
           { key: 'open_issues', title: '未闭环' },
         ]}
@@ -139,11 +176,37 @@ export function RecentIssuesPanel({ items }) {
           },
           { key: 'restroom', title: '公厕', render: (row) => row.restroom?.name ?? '-' },
           { key: 'severity', title: '程度', render: (row) => <SeverityTag severity={row.severity} /> },
+          { key: 'source', title: '来源', render: (row) => <SourceTag source={row.source} /> },
           { key: 'status', title: '状态', render: (row) => <StatusTag status={row.status} /> },
           { key: 'report_time', title: '上报时间', render: (row) => formatDateTime(row.report_time) },
         ]}
         rows={items || []}
         emptyText="暂无问题"
+      />
+    </section>
+  );
+}
+
+export function RecentMysteryVisitsPanel({ items }) {
+  return (
+    <section className="card">
+      <div className="card-title">
+        <h3>最新第三方暗访</h3>
+        <Link className="hint" to="/mystery">
+          查看全部 →
+        </Link>
+      </div>
+      <DataTable
+        columns={[
+          { key: 'restroom', title: '公厕', render: (row) => row.restroom?.name ?? '-' },
+          { key: 'inspector', title: '暗访人' },
+          { key: 'score', title: '得分', render: (row) => <ScorePill score={row.score} /> },
+          { key: 'grade', title: '等级', render: (row) => <GradeTag grade={row.grade} /> },
+          { key: 'result', title: '结论', render: (row) => <StatusTag status={row.result} /> },
+          { key: 'visit_time', title: '暗访时间', render: (row) => formatDateTime(row.visit_time) },
+        ]}
+        rows={items || []}
+        emptyText="暂无暗访记录"
       />
     </section>
   );

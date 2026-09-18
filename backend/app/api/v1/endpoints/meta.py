@@ -10,9 +10,12 @@ from app.core.constants import (
     INSPECTION_CHECK_ITEMS,
     INSPECTION_ITEM_MAX_SCORE,
     ISSUE_TRANSITIONS,
+    MYSTERY_TASK_TRANSITIONS,
     IssueCategory,
     IssueSeverity,
+    IssueSource,
     IssueStatus,
+    MysteryTaskStatus,
     RestroomGrade,
     RestroomStatus,
     Shift,
@@ -37,9 +40,12 @@ class Dictionaries(BaseModel):
     issue_category: list[str]
     issue_severity: list[str]
     issue_status: list[str]
+    issue_source: list[str]
+    mystery_task_status: list[str]
     inspection_check_items: list[str]
     inspection_item_max_score: int
     issue_transitions: dict[str, list[str]]
+    mystery_task_transitions: dict[str, list[str]]
 
 
 @router.get("/dictionaries", response_model=Dictionaries, summary="枚举字典")
@@ -51,9 +57,14 @@ def get_dictionaries() -> Dictionaries:
         issue_category=[item.value for item in IssueCategory],
         issue_severity=[item.value for item in IssueSeverity],
         issue_status=[item.value for item in IssueStatus],
+        issue_source=[item.value for item in IssueSource],
+        mystery_task_status=[item.value for item in MysteryTaskStatus],
         inspection_check_items=list(INSPECTION_CHECK_ITEMS),
         inspection_item_max_score=INSPECTION_ITEM_MAX_SCORE,
         issue_transitions={key: list(value) for key, value in ISSUE_TRANSITIONS.items()},
+        mystery_task_transitions={
+            key: list(value) for key, value in MYSTERY_TASK_TRANSITIONS.items()
+        },
     )
 
 

@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.constants import IssueCategory, IssueSeverity, IssueStatus
+from app.core.constants import IssueCategory, IssueSeverity, IssueSource, IssueStatus
 from app.core.database import Base
 
 
@@ -22,6 +22,13 @@ class Issue(Base):
     inspection_id: Mapped[int | None] = mapped_column(
         ForeignKey("inspections.id", ondelete="SET NULL"), nullable=True, index=True,
         comment="关联巡查记录",
+    )
+    mystery_visit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mystery_visits.id", ondelete="SET NULL"), nullable=True, index=True,
+        comment="关联第三方暗访记录",
+    )
+    source: Mapped[str] = mapped_column(
+        String(20), default=IssueSource.INTERNAL.value, index=True, comment="问题来源"
     )
     title: Mapped[str] = mapped_column(String(120), comment="问题标题")
     description: Mapped[str] = mapped_column(Text, default="", comment="问题描述")
@@ -49,6 +56,7 @@ class Issue(Base):
 
     restroom: Mapped["Restroom"] = relationship(back_populates="issues")  # noqa: F821
     inspection: Mapped["Inspection | None"] = relationship(back_populates="issues")  # noqa: F821
+    mystery_visit: Mapped["MysteryVisit | None"] = relationship(back_populates="issues")  # noqa: F821
     records: Mapped[list["RectificationRecord"]] = relationship(
         back_populates="issue",
         cascade="all, delete-orphan",

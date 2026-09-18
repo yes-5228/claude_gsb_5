@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.inspection import InspectionOut
 from app.schemas.issue import IssueOut
+from app.schemas.mystery import MysteryVisitOut
 
 
 class NameValue(BaseModel):
@@ -19,6 +20,11 @@ class OverviewStats(BaseModel):
     inspection_today: int = 0
     inspection_week: int = 0
     avg_score_week: float = 0.0
+    mystery_task_total: int = 0
+    mystery_visit_total: int = 0
+    mystery_visit_week: int = 0
+    avg_mystery_score_week: float = 0.0
+    mystery_issue_open: int = 0
     issue_total: int = 0
     issue_open: int = 0
     issue_overdue: int = 0
@@ -31,6 +37,8 @@ class TrendPoint(BaseModel):
     inspections: int = 0
     issues: int = 0
     avg_score: float = 0.0
+    mystery_visits: int = 0
+    avg_mystery_score: float = 0.0
 
 
 class CategoryStat(BaseModel):
@@ -47,6 +55,8 @@ class RestroomRankItem(BaseModel):
     district: str
     inspection_count: int = 0
     avg_score: float = 0.0
+    mystery_visit_count: int = 0
+    avg_mystery_score: float = 0.0
     open_issues: int = 0
 
 
@@ -55,6 +65,8 @@ class DistrictStat(BaseModel):
     restroom_count: int = 0
     issue_open: int = 0
     avg_score: float = 0.0
+    mystery_visit_count: int = 0
+    avg_mystery_score: float = 0.0
 
 
 class DashboardStats(BaseModel):
@@ -62,6 +74,7 @@ class DashboardStats(BaseModel):
 
     overview: OverviewStats
     issue_by_status: list[NameValue] = Field(default_factory=list)
+    issue_by_source: list[NameValue] = Field(default_factory=list)
     issue_by_category: list[CategoryStat] = Field(default_factory=list)
     issue_by_severity: list[NameValue] = Field(default_factory=list)
     inspection_trend: list[TrendPoint] = Field(default_factory=list)
@@ -69,3 +82,4 @@ class DashboardStats(BaseModel):
     top_restrooms: list[RestroomRankItem] = Field(default_factory=list)
     recent_issues: list[IssueOut] = Field(default_factory=list)
     recent_inspections: list[InspectionOut] = Field(default_factory=list)
+    recent_mystery_visits: list[MysteryVisitOut] = Field(default_factory=list)

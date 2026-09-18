@@ -10,7 +10,9 @@ from app.core.constants import (
     INSPECTION_CHECK_ITEMS,
     IssueCategory,
     IssueSeverity,
+    IssueSource,
     IssueStatus,
+    MysteryTaskStatus,
     RestroomGrade,
     RestroomStatus,
     Shift,
@@ -18,8 +20,10 @@ from app.core.constants import (
 from app.models import Restroom
 from app.schemas.inspection import InspectionCreate, InspectionItem
 from app.schemas.issue import IssueCreate, IssueStatusUpdate
+from app.schemas.mystery import MysteryTaskCreate, MysteryVisitCreate
 from app.schemas.restroom import RestroomCreate
-from app.services import inspection_service, issue_service, restroom_service
+from app.services import inspection_service, issue_service, mystery_service, restroom_service
+from app.services import scoring
 
 RANDOM_SEED = 20240913
 
@@ -37,6 +41,8 @@ RESTROOM_SPECS = [
 ]
 
 INSPECTORS = ["张伟", "刘洋", "胡明月", "邓晨曦", "马晓峰", "杨柳"]
+MYSTERY_AGENCIES = ["公信第三方测评机构", "市民巡访团", "中环卫生评估公司"]
+MYSTERY_INSPECTORS = ["暗访员-陈", "暗访员-林", "暗访员-周", "测评员-赵"]
 MANAGERS = ["王秀兰", "李国强", "陈志远", "刘桂芳", "周晓燕", "吴建华", "郑淑珍", "孙鹏"]
 
 ISSUE_TEMPLATES = {
@@ -190,7 +196,107 @@ def seed_database(db: Session, *, reset: bool = False) -> int:
         created += 1
         _advance_issue(db, issue.id, age_days, rng)
 
+    _seed_mystery(db, restrooms, now)
+
     return created
+
+
+def _seed_mystery(db: Session, restrooms: list, now: datetime) -> None:
+    """写入第三方暗访演示数据：按区域与周期下发任务、提交暗访、生成暗访来源问题。"""
+    rng = random.Random(RANDOM_SEED + 7)
+    districts = list({room.district for room in restrooms})
+
+    # 近两周各下发一个暗访周期，覆盖全部区域
+    for week_offset in (1, 0):
+        period_dt = now - timedelta(weeks=week_offset)
+        iso_year, iso_week, _ = period_dt.isocalendar()
+        period = f"{iso_year}-W{iso_week:02d}"
+        week_start = datetime.fromisocalendar(iso_year, iso_week, 1)
+        week_end = week_start + timedelta(days=6)
+        for district in districts:
+            candidates = [room for room in restrooms if room.district == district]
+            if not candidates:
+                continue
+            task = mystery_service.create_task(
+                db,
+                MysteryTaskCreate(
+                    name=f"{district}公厕卫生第 {iso_week} 周暗访",
+                    district=district,
+                    period=period,
+                    inspector=rng.choice(MYSTERY_AGENCIES),
+                    start_date=week_start.replace(hour=9),
+                    end_date=week_end.replace(hour=18),
+                    remark="第三方机构独立暗访，评分口径与内部巡查一致",
+                ),
+            )
+            for room in rng.sample(candidates, k=min(2, len(candidates))):
+                if room.status == RestroomStatus.CLOSED:
+                    continue
+                quality = rng.uniform(7.2, 9.6) - (2.4 if rng.random() < 0.4 else 0)
+                items = _build_items(rng, quality)
+                item_payload = [
+                    {"name": item.name, "score": item.score, "remark": item.remark}
+                    for item in items
+                ]
+                _, _, result = scoring.evaluate(item_payload)
+                visit_time = week_start + timedelta(
+                    days=rng.randint(1, 5), hours=rng.randint(0, 7), minutes=rng.choice([10, 30, 50])
+                )
+                visit = mystery_service.create_visit(
+                    db,
+                    MysteryVisitCreate(
+                        task_id=task.id,
+                        restroom_id=room.id,
+                        inspector=rng.choice(MYSTERY_INSPECTORS),
+                        visit_time=visit_time,
+                        items=item_payload,
+                        images=(
+                            [f"https://example.com/mystery/{task.code}/{room.code}-1.jpg"]
+                            if result == "发现问题"
+                            else []
+                        ),
+                        problem_desc=(
+                            f"现场检查项「{_pick_problem(items)}」不达标，已拍照留存"
+                            if result == "发现问题"
+                            else ""
+                        ),
+                        remark="暗访取证记录",
+                    ),
+                )
+                if result == "发现问题" and rng.random() < 0.8:
+                    problem_item = _pick_problem(items)
+                    category = CATEGORY_BY_ITEM.get(problem_item or "", IssueCategory.OTHER)
+                    issue = issue_service.create_issue(
+                        db,
+                        IssueCreate(
+                            restroom_id=room.id,
+                            mystery_visit_id=visit.id,
+                            source=IssueSource.MYSTERY,
+                            title=rng.choice(ISSUE_TEMPLATES[category]),
+                            description=(
+                                f"暗访得分 {visit.score} 分（{visit.grade}），{visit.problem_desc}。"
+                            ),
+                            category=category,
+                            severity=rng.choice(
+                                [IssueSeverity.NORMAL, IssueSeverity.SERIOUS, IssueSeverity.URGENT]
+                            ),
+                            reporter=visit.inspector,
+                            assignee=rng.choice(MANAGERS),
+                            deadline=visit_time + timedelta(days=3),
+                            initial_remark="第三方暗访发现，转入普通问题整改流程",
+                        ),
+                    )
+                    _advance_issue(db, issue.id, (now - visit_time).days, rng)
+
+            # 上周任务全部完成，本周任务保留进行中/待执行两种状态
+            if week_offset == 1 and mystery_service.task_visit_count(db, task.id):
+                mystery_service.change_task_status(
+                    db,
+                    task.id,
+                    MysteryTaskStatus.SUBMITTED,
+                    "暗访项目负责人",
+                    "本周期暗访材料已全部回收",
+                )
 
 
 def _advance_issue(db: Session, issue_id: int, age_days: int, rng: random.Random) -> None:

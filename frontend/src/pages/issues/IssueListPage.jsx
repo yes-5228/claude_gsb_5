@@ -7,7 +7,7 @@ import DataTable from '../../components/DataTable.jsx';
 import Field from '../../components/Field.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import Pagination from '../../components/Pagination.jsx';
-import { OverdueTag, SeverityTag, StatusTag } from '../../components/Tags.jsx';
+import { OverdueTag, SeverityTag, SourceTag, StatusTag } from '../../components/Tags.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useAsync } from '../../hooks/useAsync.js';
 import { useDictionaries } from '../../hooks/useDictionaries.js';
@@ -19,6 +19,7 @@ const DEFAULT_FILTERS = {
   keyword: '',
   district: '',
   status: '',
+  source: '',
   category: '',
   severity: '',
   overdue: '',
@@ -35,12 +36,14 @@ export default function IssueListPage() {
   const list = useListQuery((params) => issueApi.list(params), DEFAULT_FILTERS, 10);
   const { data: districts } = useAsync(() => restroomApi.districts(), []);
 
-  // 支持从巡查记录跳转过来直接上报问题
+  // 支持从巡查记录或暗访记录跳转过来直接上报问题
   useEffect(() => {
     const inspectionId = searchParams.get('createFromInspection');
-    if (!inspectionId) return;
+    const mysteryId = searchParams.get('createFromMystery');
+    if (!inspectionId && !mysteryId) return;
     setPreset({
-      defaultInspectionId: Number(inspectionId),
+      defaultInspectionId: inspectionId ? Number(inspectionId) : undefined,
+      defaultMysteryVisitId: mysteryId ? Number(mysteryId) : undefined,
       defaultRestroomId: searchParams.get('restroomId'),
     });
     setShowForm(true);
@@ -104,6 +107,17 @@ export default function IssueListPage() {
               >
                 <option value="">全部</option>
                 {(dictionaries?.issue_category || []).map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="问题来源">
+              <select
+                value={list.filters.source}
+                onChange={(event) => list.updateFilter('source', event.target.value)}
+              >
+                <option value="">全部</option>
+                {(dictionaries?.issue_source || []).map((item) => (
                   <option key={item}>{item}</option>
                 ))}
               </select>
@@ -179,6 +193,11 @@ export default function IssueListPage() {
                   ),
               },
               { key: 'category', title: '分类' },
+              {
+                key: 'source',
+                title: '来源',
+                render: (row) => <SourceTag source={row.source} />,
+              },
               {
                 key: 'severity',
                 title: '程度',

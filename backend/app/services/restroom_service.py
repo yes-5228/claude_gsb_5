@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import OPEN_ISSUE_STATUSES
 from app.core.exceptions import ConflictError, DomainError, NotFoundError
-from app.models import Inspection, Issue, Restroom
+from app.models import Inspection, Issue, MysteryVisit, Restroom
 from app.schemas.restroom import RestroomCreate, RestroomDetail, RestroomOut, RestroomUpdate
 
 SORTABLE_FIELDS = {
@@ -104,13 +104,16 @@ def delete_restroom(db: Session, restroom_id: int, *, force: bool = False) -> No
     inspection_count = db.scalar(
         select(func.count()).select_from(Inspection).where(Inspection.restroom_id == restroom_id)
     ) or 0
+    mystery_count = db.scalar(
+        select(func.count()).select_from(MysteryVisit).where(MysteryVisit.restroom_id == restroom_id)
+    ) or 0
     issue_count = db.scalar(
         select(func.count()).select_from(Issue).where(Issue.restroom_id == restroom_id)
     ) or 0
-    if (inspection_count or issue_count) and not force:
+    if (inspection_count or mystery_count or issue_count) and not force:
         raise ConflictError(
-            f"该公厕已有 {inspection_count} 条巡查记录、{issue_count} 条问题记录，"
-            "确需删除请使用 force=true"
+            f"该公厕已有 {inspection_count} 条巡查记录、{mystery_count} 条暗访记录、"
+            f"{issue_count} 条问题记录，确需删除请使用 force=true"
         )
     db.delete(restroom)
     db.commit()
@@ -130,6 +133,18 @@ def get_restroom_detail(db: Session, restroom_id: int) -> RestroomDetail:
         .order_by(Inspection.inspect_time.desc(), Inspection.id.desc())
         .limit(1)
     ).first()
+    mystery_count = db.scalar(
+        select(func.count()).select_from(MysteryVisit).where(MysteryVisit.restroom_id == restroom_id)
+    ) or 0
+    avg_mystery = db.scalar(
+        select(func.avg(MysteryVisit.score)).where(MysteryVisit.restroom_id == restroom_id)
+    )
+    latest_mystery = db.scalars(
+        select(MysteryVisit)
+        .where(MysteryVisit.restroom_id == restroom_id)
+        .order_by(MysteryVisit.visit_time.desc(), MysteryVisit.id.desc())
+        .limit(1)
+    ).first()
     open_issue_count = db.scalar(
         select(func.count())
         .select_from(Issue)
@@ -146,6 +161,10 @@ def get_restroom_detail(db: Session, restroom_id: int) -> RestroomDetail:
         latest_inspection_time=latest.inspect_time if latest else None,
         latest_inspection_score=latest.score if latest else None,
         avg_score=round(float(avg_score), 1) if avg_score is not None else None,
+        mystery_visit_count=mystery_count,
+        latest_mystery_time=latest_mystery.visit_time if latest_mystery else None,
+        latest_mystery_score=latest_mystery.score if latest_mystery else None,
+        avg_mystery_score=round(float(avg_mystery), 1) if avg_mystery is not None else None,
         open_issue_count=open_issue_count,
         total_issue_count=total_issue_count,
     )

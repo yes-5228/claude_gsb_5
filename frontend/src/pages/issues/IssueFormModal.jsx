@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import { inspectionApi } from '../../api/inspections.js';
 import { issueApi } from '../../api/issues.js';
 import { metaApi } from '../../api/meta.js';
+import { mysteryApi } from '../../api/mystery.js';
 import Field from '../../components/Field.jsx';
 import Modal from '../../components/Modal.jsx';
+import { SourceTag } from '../../components/Tags.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useDictionaries } from '../../hooks/useDictionaries.js';
 import { toDateTimeInput } from '../../utils/format.js';
@@ -12,6 +14,7 @@ import { toDateTimeInput } from '../../utils/format.js';
 export default function IssueFormModal({
   defaultRestroomId,
   defaultInspectionId,
+  defaultMysteryVisitId,
   onClose,
   onSaved,
 }) {
@@ -19,11 +22,13 @@ export default function IssueFormModal({
   const toast = useToast();
   const [restrooms, setRestrooms] = useState([]);
   const [inspections, setInspections] = useState([]);
+  const [visits, setVisits] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [form, setForm] = useState({
     restroom_id: defaultRestroomId ? Number(defaultRestroomId) : '',
     inspection_id: defaultInspectionId ? Number(defaultInspectionId) : '',
+    mystery_visit_id: defaultMysteryVisitId ? Number(defaultMysteryVisitId) : '',
     title: '',
     description: '',
     category: '保洁不到位',
@@ -41,26 +46,52 @@ export default function IssueFormModal({
       .catch((err) => setError(err.message));
   }, []);
 
-  // 切换公厕后重新加载该公厕的巡查记录，供关联选择
+  // 切换公厕后加载该公厕的巡查记录与暗访记录，供关联选择（二者互斥）
   useEffect(() => {
     if (!form.restroom_id) {
       setInspections([]);
+      setVisits([]);
       return undefined;
     }
     let cancelled = false;
     const load = async () => {
       try {
-        const data = await inspectionApi.list({ restroom_id: form.restroom_id, page_size: 30 });
-        let rows = data.items;
-        // 从巡查页跳转过来时，目标记录可能不在最近 30 条内，单独补取保证下拉框能正确回显
-        const presetId = defaultInspectionId ? Number(defaultInspectionId) : null;
-        if (presetId && !rows.some((item) => item.id === presetId)) {
-          const extra = await inspectionApi.detail(presetId).catch(() => null);
-          if (extra) rows = [extra, ...rows];
+        const [inspData, visitData] = await Promise.all([
+          inspectionApi.list({ restroom_id: form.restroom_id, page_size: 30 }),
+          mysteryApi.listVisits({ restroom_id: form.restroom_id, page_size: 30 }),
+        ]);
+        let inspRows = inspData.items;
+        let visitRows = visitData.items;
+        const presetInsp = defaultInspectionId ? Number(defaultInspectionId) : null;
+        const presetVisit = defaultMysteryVisitId ? Number(defaultMysteryVisitId) : null;
+        if (presetInsp && !inspRows.some((item) => item.id === presetInsp)) {
+          const extra = await inspectionApi.detail(presetInsp).catch(() => null);
+          if (extra) inspRows = [extra, ...inspRows];
         }
-        if (!cancelled) setInspections(rows);
+        if (presetVisit && !visitRows.some((item) => item.id === presetVisit)) {
+          const extra = await mysteryApi.visitDetail(presetVisit).catch(() => null);
+          if (extra) visitRows = [extra, ...visitRows];
+        }
+        if (!cancelled) {
+          setInspections(inspRows);
+          setVisits(visitRows);
+          // 从暗访记录跳转过来时，带入暗访人与问题说明
+          if (presetVisit) {
+            const visit = visitRows.find((item) => item.id === presetVisit);
+            if (visit) {
+              setForm((prev) => ({
+                ...prev,
+                reporter: prev.reporter || visit.inspector,
+                description: prev.description || visit.problem_desc || '',
+              }));
+            }
+          }
+        }
       } catch {
-        if (!cancelled) setInspections([]);
+        if (!cancelled) {
+          setInspections([]);
+          setVisits([]);
+        }
       }
     };
     load();
@@ -72,6 +103,20 @@ export default function IssueFormModal({
 
   const setValue = (key) => (event) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }));
+
+  // 内部巡查与第三方暗访关联互斥
+  const selectInspection = (value) =>
+    setForm((prev) => ({
+      ...prev,
+      inspection_id: value,
+      mystery_visit_id: value ? '' : prev.mystery_visit_id,
+    }));
+  const selectMystery = (value) =>
+    setForm((prev) => ({
+      ...prev,
+      mystery_visit_id: value,
+      inspection_id: value ? '' : prev.inspection_id,
+    }));
 
   const submit = async (event) => {
     event.preventDefault();
@@ -90,6 +135,7 @@ export default function IssueFormModal({
         ...form,
         restroom_id: Number(form.restroom_id),
         inspection_id: form.inspection_id ? Number(form.inspection_id) : null,
+        mystery_visit_id: form.mystery_visit_id ? Number(form.mystery_visit_id) : null,
         deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
       });
       toast.success('问题已上报，进入待整改状态');
@@ -130,12 +176,27 @@ export default function IssueFormModal({
             ))}
           </select>
         </Field>
+        <Field label="问题来源" hint="关联暗访记录后自动标记为第三方暗访">
+          <div style={{ alignSelf: 'center' }}>
+            {form.mystery_visit_id ? <SourceTag source="第三方暗访" /> : <SourceTag source="内部巡查" />}
+          </div>
+        </Field>
         <Field label="关联巡查记录" hint="可不选，直接上报">
-          <select value={form.inspection_id} onChange={setValue('inspection_id')}>
+          <select value={form.inspection_id} onChange={(event) => selectInspection(event.target.value)}>
             <option value="">不关联</option>
             {inspections.map((item) => (
               <option key={item.id} value={item.id}>
                 {new Date(item.inspect_time).toLocaleString('zh-CN')} · {item.inspector} · {item.score} 分
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="关联暗访记录" hint="与巡查记录互斥">
+          <select value={form.mystery_visit_id} onChange={(event) => selectMystery(event.target.value)}>
+            <option value="">不关联</option>
+            {visits.map((item) => (
+              <option key={item.id} value={item.id}>
+                {new Date(item.visit_time).toLocaleString('zh-CN')} · {item.inspector} · {item.score} 分
               </option>
             ))}
           </select>
@@ -158,7 +219,7 @@ export default function IssueFormModal({
           </select>
         </Field>
         <Field label="上报人">
-          <input value={form.reporter} onChange={setValue('reporter')} placeholder="巡查员 / 群众" />
+          <input value={form.reporter} onChange={setValue('reporter')} placeholder="巡查员 / 暗访人 / 群众" />
         </Field>
         <Field label="整改责任人">
           <input value={form.assignee} onChange={setValue('assignee')} placeholder="保洁班组 / 责任人" />

@@ -43,6 +43,15 @@ export const STATUS_TONES = {
   已关闭: 'tag-neutral',
   正常: 'tag-success',
   发现问题: 'tag-danger',
+  待执行: 'tag-warning',
+  进行中: 'tag-info',
+  已取消: 'tag-neutral',
+};
+
+export const SOURCE_TONES = {
+  内部巡查: 'tag-primary',
+  第三方暗访: 'tag-warning',
+  群众反馈: 'tag-neutral',
 };
 
 export const SEVERITY_TONES = {

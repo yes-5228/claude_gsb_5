@@ -49,6 +49,40 @@ class IssueStatus(StrEnum):
     CLOSED = "已关闭"
 
 
+class IssueSource(StrEnum):
+    """问题来源：内部巡查、第三方暗访或群众反馈。"""
+
+    INTERNAL = "内部巡查"
+    MYSTERY = "第三方暗访"
+    PUBLIC = "群众反馈"
+
+
+class MysteryTaskStatus(StrEnum):
+    """暗访任务下发后的执行状态。"""
+
+    PENDING = "待执行"
+    ONGOING = "进行中"
+    SUBMITTED = "已完成"
+    CANCELLED = "已取消"
+
+
+# 暗访任务流转规则：当前状态 -> 允许流转到的状态
+MYSTERY_TASK_TRANSITIONS: dict[str, list[str]] = {
+    MysteryTaskStatus.PENDING: [MysteryTaskStatus.ONGOING, MysteryTaskStatus.CANCELLED],
+    MysteryTaskStatus.ONGOING: [MysteryTaskStatus.SUBMITTED, MysteryTaskStatus.CANCELLED],
+    MysteryTaskStatus.SUBMITTED: [],
+    MysteryTaskStatus.CANCELLED: [],
+}
+
+# 暗访任务状态流转对应的动作名称
+MYSTERY_TASK_ACTIONS: dict[tuple[str, str], str] = {
+    (MysteryTaskStatus.PENDING, MysteryTaskStatus.ONGOING): "开始暗访",
+    (MysteryTaskStatus.PENDING, MysteryTaskStatus.CANCELLED): "取消任务",
+    (MysteryTaskStatus.ONGOING, MysteryTaskStatus.SUBMITTED): "完成任务",
+    (MysteryTaskStatus.ONGOING, MysteryTaskStatus.CANCELLED): "终止任务",
+}
+
+
 # 整改流转规则：当前状态 -> 允许流转到的状态
 ISSUE_TRANSITIONS: dict[str, list[str]] = {
     IssueStatus.PENDING: [IssueStatus.PROCESSING, IssueStatus.CLOSED],
@@ -82,6 +116,9 @@ INSPECTION_CHECK_ITEMS: list[str] = [
 ]
 
 INSPECTION_ITEM_MAX_SCORE = 10
+
+# 第三方暗访沿用与内部巡查完全一致的统一评分表，保证两类结论口径一致
+MYSTERY_CHECK_ITEMS: list[str] = list(INSPECTION_CHECK_ITEMS)
 
 GRADE_EXCELLENT = "优秀"
 GRADE_GOOD = "良好"

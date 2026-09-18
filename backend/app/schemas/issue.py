@@ -4,7 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.constants import IssueCategory, IssueSeverity, IssueStatus
+from app.core.constants import IssueCategory, IssueSeverity, IssueSource, IssueStatus
+from app.schemas.mystery import MysteryVisitBrief
 from app.schemas.restroom import RestroomBrief
 
 
@@ -36,6 +37,8 @@ class IssueBase(BaseModel):
 class IssueCreate(IssueBase):
     restroom_id: int
     inspection_id: int | None = Field(default=None, description="关联的巡查记录")
+    mystery_visit_id: int | None = Field(default=None, description="关联的第三方暗访记录")
+    source: IssueSource = Field(default=IssueSource.INTERNAL, description="问题来源")
     report_time: datetime | None = Field(default=None, description="上报时间，留空取当前时间")
     initial_remark: str | None = Field(default=None, max_length=500, description="上报说明")
 
@@ -66,6 +69,9 @@ class IssueOut(BaseModel):
     restroom_id: int
     restroom: RestroomBrief | None = None
     inspection_id: int | None = None
+    mystery_visit_id: int | None = None
+    mystery_visit: MysteryVisitBrief | None = None
+    source: str = "内部巡查"
     title: str
     description: str
     category: str

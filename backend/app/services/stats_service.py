@@ -9,10 +9,12 @@ from app.core.constants import (
     OPEN_ISSUE_STATUSES,
     IssueCategory,
     IssueSeverity,
+    IssueSource,
     IssueStatus,
+    MysteryTaskStatus,
     RestroomStatus,
 )
-from app.models import Inspection, Issue, Restroom
+from app.models import Inspection, Issue, MysteryVisit, MysteryVisitTask, Restroom
 from app.schemas.stats import (
     CategoryStat,
     DashboardStats,
@@ -22,7 +24,8 @@ from app.schemas.stats import (
     RestroomRankItem,
     TrendPoint,
 )
-from app.services import inspection_service, issue_service
+from app.schemas.mystery import MysteryVisitOut
+from app.services import inspection_service, issue_service, mystery_service
 
 
 def _count(db: Session, model, *conditions) -> int:
@@ -67,6 +70,25 @@ def overview(db: Session) -> OverviewStats:
             ),
             1,
         ),
+        # 第三方暗访指标与内部巡查分开统计，互不混入得分口径
+        mystery_task_total=_count(db, MysteryVisitTask),
+        mystery_visit_total=_count(db, MysteryVisit),
+        mystery_visit_week=_count(db, MysteryVisit, MysteryVisit.visit_time >= week_start),
+        avg_mystery_score_week=round(
+            float(
+                db.scalar(
+                    select(func.avg(MysteryVisit.score)).where(MysteryVisit.visit_time >= week_start)
+                )
+                or 0.0
+            ),
+            1,
+        ),
+        mystery_issue_open=_count(
+            db,
+            Issue,
+            Issue.source == IssueSource.MYSTERY.value,
+            Issue.status.in_(OPEN_ISSUE_STATUSES),
+        ),
         issue_total=issue_total,
         issue_open=issue_open,
         issue_overdue=issue_overdue,
@@ -90,6 +112,14 @@ def issue_by_severity(db: Session) -> list[NameValue]:
     return [
         NameValue(name=severity.value, value=float(rows.get(severity.value, 0)))
         for severity in IssueSeverity
+    ]
+
+
+def issue_by_source(db: Session) -> list[NameValue]:
+    rows = dict(db.execute(select(Issue.source, func.count()).group_by(Issue.source)).all())
+    return [
+        NameValue(name=source.value, value=float(rows.get(source.value, 0)))
+        for source in IssueSource
     ]
 
 
@@ -128,11 +158,20 @@ def inspection_trend(db: Session, days: int = 14) -> list[TrendPoint]:
     issue_rows = db.execute(
         select(Issue.report_time).where(Issue.report_time >= start_dt)
     ).all()
+    mystery_rows = db.execute(
+        select(MysteryVisit.visit_time, MysteryVisit.score).where(MysteryVisit.visit_time >= start_dt)
+    ).all()
 
     buckets: dict[str, dict[str, float]] = {}
     for offset in range(days):
         key = (start + timedelta(days=offset)).isoformat()
-        buckets[key] = {"inspections": 0, "issues": 0, "score_sum": 0.0}
+        buckets[key] = {
+            "inspections": 0,
+            "issues": 0,
+            "score_sum": 0.0,
+            "mystery_visits": 0,
+            "mystery_score_sum": 0.0,
+        }
     for inspect_time, score in inspection_rows:
         key = inspect_time.date().isoformat()
         if key in buckets:
@@ -142,16 +181,26 @@ def inspection_trend(db: Session, days: int = 14) -> list[TrendPoint]:
         key = report_time.date().isoformat()
         if key in buckets:
             buckets[key]["issues"] += 1
+    for visit_time, score in mystery_rows:
+        key = visit_time.date().isoformat()
+        if key in buckets:
+            buckets[key]["mystery_visits"] += 1
+            buckets[key]["mystery_score_sum"] += float(score or 0)
 
     points: list[TrendPoint] = []
     for key, bucket in buckets.items():
         count = int(bucket["inspections"])
+        mystery_count = int(bucket["mystery_visits"])
         points.append(
             TrendPoint(
                 date=key,
                 inspections=count,
                 issues=int(bucket["issues"]),
                 avg_score=round(bucket["score_sum"] / count, 1) if count else 0.0,
+                mystery_visits=mystery_count,
+                avg_mystery_score=(
+                    round(bucket["mystery_score_sum"] / mystery_count, 1) if mystery_count else 0.0
+                ),
             )
         )
     return points
@@ -175,6 +224,18 @@ def district_stats(db: Session) -> list[DistrictStat]:
         .group_by(Restroom.district)
     ).all()
     scores = {district: float(avg or 0) for district, avg in score_rows}
+    mystery_count_rows = db.execute(
+        select(Restroom.district, func.count(MysteryVisit.id))
+        .join(MysteryVisit, MysteryVisit.restroom_id == Restroom.id)
+        .group_by(Restroom.district)
+    ).all()
+    mystery_counts = {district: int(count) for district, count in mystery_count_rows}
+    mystery_score_rows = db.execute(
+        select(Restroom.district, func.avg(MysteryVisit.score))
+        .join(MysteryVisit, MysteryVisit.restroom_id == Restroom.id)
+        .group_by(Restroom.district)
+    ).all()
+    mystery_scores = {district: float(avg or 0) for district, avg in mystery_score_rows}
 
     return sorted(
         [
@@ -183,6 +244,8 @@ def district_stats(db: Session) -> list[DistrictStat]:
                 restroom_count=count,
                 issue_open=opens.get(district, 0),
                 avg_score=round(scores.get(district, 0.0), 1),
+                mystery_visit_count=mystery_counts.get(district, 0),
+                avg_mystery_score=round(mystery_scores.get(district, 0.0), 1),
             )
             for district, count in counts.items()
         ],
@@ -202,6 +265,16 @@ def restroom_ranking(db: Session, limit: int = 8) -> list[RestroomRankItem]:
     stats = {
         rid: {"count": int(count), "avg": round(float(avg or 0), 1)} for rid, count, avg in inspections
     }
+    mystery = db.execute(
+        select(
+            MysteryVisit.restroom_id,
+            func.count(MysteryVisit.id),
+            func.avg(MysteryVisit.score),
+        ).group_by(MysteryVisit.restroom_id)
+    ).all()
+    mystery_stats = {
+        rid: {"count": int(count), "avg": round(float(avg or 0), 1)} for rid, count, avg in mystery
+    }
     open_rows = db.execute(
         select(Issue.restroom_id, func.count())
         .where(Issue.status.in_(OPEN_ISSUE_STATUSES))
@@ -212,6 +285,7 @@ def restroom_ranking(db: Session, limit: int = 8) -> list[RestroomRankItem]:
     ranking: list[RestroomRankItem] = []
     for restroom in db.scalars(select(Restroom)):
         stat = stats.get(restroom.id, {"count": 0, "avg": 0.0})
+        mstat = mystery_stats.get(restroom.id, {"count": 0, "avg": 0.0})
         ranking.append(
             RestroomRankItem(
                 restroom_id=restroom.id,
@@ -220,6 +294,8 @@ def restroom_ranking(db: Session, limit: int = 8) -> list[RestroomRankItem]:
                 district=restroom.district,
                 inspection_count=stat["count"],
                 avg_score=stat["avg"],
+                mystery_visit_count=mstat["count"],
+                avg_mystery_score=mstat["avg"],
                 open_issues=opens.get(restroom.id, 0),
             )
         )
@@ -232,9 +308,11 @@ def dashboard(db: Session, trend_days: int = 14) -> DashboardStats:
     recent_inspections, _ = inspection_service.list_inspections(
         db, page=1, page_size=5, sort_by="inspect_time"
     )
+    recent_mystery, _ = mystery_service.list_visits(db, page=1, page_size=5, sort_by="visit_time")
     return DashboardStats(
         overview=overview(db),
         issue_by_status=issue_by_status(db),
+        issue_by_source=issue_by_source(db),
         issue_by_category=issue_by_category(db),
         issue_by_severity=issue_by_severity(db),
         inspection_trend=inspection_trend(db, days=trend_days),
@@ -242,4 +320,11 @@ def dashboard(db: Session, trend_days: int = 14) -> DashboardStats:
         top_restrooms=restroom_ranking(db),
         recent_issues=[issue_service.to_out(issue) for issue in recent_issues],
         recent_inspections=[inspection_service.to_out(item) for item in recent_inspections],
+        recent_mystery_visits=[_visit_to_out(item) for item in recent_mystery],
     )
+
+
+def _visit_to_out(visit) -> MysteryVisitOut:
+    out = MysteryVisitOut.model_validate(visit)
+    out.issue_count = len(visit.issues)
+    return out

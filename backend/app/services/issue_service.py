@@ -9,10 +9,11 @@ from app.core.constants import (
     ISSUE_TRANSITIONS,
     OPEN_ISSUE_STATUSES,
     TRANSITION_ACTIONS,
+    IssueSource,
     IssueStatus,
 )
 from app.core.exceptions import DomainError, NotFoundError
-from app.models import Inspection, Issue, RectificationRecord, Restroom
+from app.models import Inspection, Issue, MysteryVisit, RectificationRecord, Restroom
 from app.schemas.issue import IssueCreate, IssueOut, IssueStatusUpdate, IssueUpdate
 from app.services import restroom_service
 
@@ -72,6 +73,7 @@ def list_issues(
     district: str | None = None,
     status: str | None = None,
     statuses: list[str] | None = None,
+    source: str | None = None,
     category: str | None = None,
     severity: str | None = None,
     keyword: str | None = None,
@@ -96,6 +98,8 @@ def list_issues(
         stmt = stmt.where(Issue.status == status)
     if statuses:
         stmt = stmt.where(Issue.status.in_(statuses))
+    if source:
+        stmt = stmt.where(Issue.source == source)
     if category:
         stmt = stmt.where(Issue.category == category)
     if severity:
@@ -143,10 +147,39 @@ def create_issue(db: Session, payload: IssueCreate) -> Issue:
         if inspection.restroom_id != payload.restroom_id:
             raise DomainError("关联的巡查记录与所选公厕不一致")
 
-    data = _values(payload.model_dump(exclude={"inspection_id", "report_time", "initial_remark"}))
+    source = payload.source.value if hasattr(payload.source, "value") else payload.source
+    if payload.mystery_visit_id is not None:
+        visit = db.get(MysteryVisit, payload.mystery_visit_id)
+        if visit is None:
+            raise NotFoundError(f"暗访记录 {payload.mystery_visit_id} 不存在")
+        if visit.restroom_id != payload.restroom_id:
+            raise DomainError("关联的暗访记录与所选公厕不一致")
+        # 暗访发现的问题统一标记为第三方暗访来源，与内部巡查得分分开统计
+        source = IssueSource.MYSTERY.value
+    elif payload.inspection_id is not None and source == IssueSource.MYSTERY.value:
+        raise DomainError("关联内部巡查记录的问题不能标记为第三方暗访来源")
+
+    data = _values(
+        payload.model_dump(
+            exclude={
+                "inspection_id",
+                "mystery_visit_id",
+                "report_time",
+                "initial_remark",
+                "source",
+            }
+        )
+    )
+    default_remark = (
+        "第三方暗访发现，按普通问题进入整改流程，等待派单整改"
+        if source == IssueSource.MYSTERY.value
+        else "巡查发现，等待派单整改"
+    )
     issue = Issue(
         code=_next_code(db),
         inspection_id=payload.inspection_id,
+        mystery_visit_id=payload.mystery_visit_id,
+        source=source,
         report_time=payload.report_time or datetime.now(),
         status=IssueStatus.PENDING.value,
         **data,
@@ -156,8 +189,8 @@ def create_issue(db: Session, payload: IssueCreate) -> Issue:
             action="上报问题",
             from_status="",
             to_status=IssueStatus.PENDING.value,
-            operator=payload.reporter or "巡查员",
-            remark=payload.initial_remark or "巡查发现，等待派单整改",
+            operator=payload.reporter or ("暗访人" if source == IssueSource.MYSTERY.value else "巡查员"),
+            remark=payload.initial_remark or default_remark,
         )
     )
     db.add(issue)
